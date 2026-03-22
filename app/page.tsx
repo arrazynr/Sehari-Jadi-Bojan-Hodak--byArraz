@@ -629,6 +629,8 @@ const SellModal=({player,onConfirm,onCancel}:{player:Player;onConfirm:(reason:st
 // ─── MAIN COMPONENT ──────────────────────────────────────────
 export default function PersibManager(){
   const[phase,setPhase]=useState<'intro'|'trivia'|'welcome'|'game'>('intro');
+  const[triviaTab,setTriviaTab]=useState('sejarah');// must be at component level, not inside if()
+  const[statsTab,setStatsTab]=useState<'klasemen'|'performa'|'scorer'>('klasemen');
   const[managerName,setManagerName]=useState('');
   const[managerRegion,setManagerRegion]=useState('');
   const[tmpName,setTmpName]=useState('');
@@ -1475,7 +1477,6 @@ export default function PersibManager(){
       {id:'rekor',label:'🏆 Rekor',icon:'🏆'},
       {id:'squad',label:'👥 Skuad',icon:'👥'},
     ];
-    const [triviaTab,setTriviaTab]=React.useState('sejarah');
     const GELAR=[
       {tahun:'1937',kompetisi:'Kejurnas PSSI',lawan:'Persis Surakarta',skor:'1-0'},
       {tahun:'1961',kompetisi:'Kejurnas PSSI',lawan:'-',skor:'-'},
@@ -2227,7 +2228,6 @@ export default function PersibManager(){
 
             {/* STATS */}
             {screen==='stats'&&(()=>{
-              const[statsTab,setStatsTab]=React.useState<'klasemen'|'performa'|'scorer'>('klasemen');
               return(
               <motion.div key="stats"initial={{opacity:0,x:30}}animate={{opacity:1,x:0}}exit={{opacity:0,x:-30}}transition={{duration:0.3}}className="space-y-3">
                 <button onClick={()=>nav('home')}className="text-sm text-blue-400 hover:text-blue-300">← Kembali</button>
