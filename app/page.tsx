@@ -1216,7 +1216,7 @@ export default function PersibManager(){
         let ratingDelta=0;
         if(played){
           if(formGood&&devChance>0.6) ratingDelta=isYoung?+(Math.random()*0.5).toFixed(1):+(Math.random()*0.2).toFixed(1);
-          else if(formBad&&devChance>0.7) ratingDelta=-(Math.random()*0.3).toFixed(1) as unknown as number;
+          else if(formBad&&devChance>0.7) ratingDelta=-parseFloat((Math.random()*0.3).toFixed(1));
         }
         const newRating=Math.min(99,Math.max(55,+(p.rating+ratingDelta).toFixed(1)));
         return{
@@ -1238,7 +1238,7 @@ export default function PersibManager(){
       setMarket(m=>m.map(p=>{
         const scored=pts===3&&Math.random()>0.7;
         const priceChange=scored?+(Math.random()*0.5).toFixed(1):
-          Math.random()>0.85?-(Math.random()*0.3).toFixed(1) as unknown as number:0;
+          Math.random()>0.85?-parseFloat((Math.random()*0.3).toFixed(1)):0;
         const newPrice=Math.max(0.5,+(p.price+priceChange).toFixed(1));
         return{...p,price:newPrice};
       }));
@@ -1332,7 +1332,7 @@ export default function PersibManager(){
     else if(isDrawing&&min>=65)tips.push(`⚡ Imbang menit ${min}. Masukkan pemain segar di FW/MF untuk cari gol pemenang!`);
     else if(isLosing&&min<45)tips.push(`😤 Masih ada waktu! Naikkan intensitas dan coba ubah formasi untuk mengejutkan lawan.`);
     // OVR
-    if(diff<-3)tips.push(`📊 OVR kita lebih rendah ${Math.abs(diff.toFixed(1))} dari lawan. Fokus counter-attack, jangan open play.`);
+    if(diff<-3)tips.push(`📊 OVR kita lebih rendah ${Math.abs(diff).toFixed(1)} dari lawan. Fokus counter-attack, jangan open play.`);
     else if(diff>5)tips.push(`💪 Kita lebih kuat! Pressing tinggi dan dominasi bola.`);
     // Kelelahan
     const tired=starters.filter(p=>p.stamina<60);
