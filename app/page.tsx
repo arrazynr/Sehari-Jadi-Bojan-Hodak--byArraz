@@ -284,6 +284,10 @@ function useSound(){
 }
 
 // ─── BACKGROUND ──────────────────────────────────────────────
+const AutoAdvance=({onDone,delay}:{onDone:()=>void;delay:number})=>{
+  React.useEffect(()=>{const t=setTimeout(onDone,delay);return()=>clearTimeout(t);},[onDone,delay]);
+  return null;
+};
 const TigerBg=()=>(
   <div className="absolute inset-0 pointer-events-none overflow-hidden">
     <div className="absolute inset-0 bg-gradient-to-br from-blue-950 via-slate-900 to-blue-950"/>
@@ -628,7 +632,7 @@ const SellModal=({player,onConfirm,onCancel}:{player:Player;onConfirm:(reason:st
 
 // ─── MAIN COMPONENT ──────────────────────────────────────────
 export default function PersibManager(){
-  const[phase,setPhase]=useState<'intro'|'trivia'|'welcome'|'game'>('intro');
+  const[phase,setPhase]=useState<'splash'|'intro'|'trivia'|'welcome'|'game'>('splash');
   const[triviaTab,setTriviaTab]=useState('sejarah');// must be at component level, not inside if()
   const[statsTab,setStatsTab]=useState<'klasemen'|'performa'|'scorer'>('klasemen');
   const[managerName,setManagerName]=useState('');
@@ -694,6 +698,58 @@ export default function PersibManager(){
   const[tactic,setTactic]=useState<'Menyerang'|'Seimbang'|'Bertahan'>('Seimbang');
   const[intensity,setIntensity]=useState<'Lembut'|'Sedang'|'Kasar'>('Sedang');
   const[soundOn,setSoundOn]=useState(true);
+  const[bgVolume,setBgVolume]=useState(0.3);
+  const bgMusicRef=useRef<AudioContext|null>(null);
+  const bgGainRef=useRef<GainNode|null>(null);
+  const bgOscRefs=useRef<OscillatorNode[]>([]);
+
+  // ── Background ambient music (Web Audio API) ─────────────
+  const startBgMusic=useCallback(()=>{
+    try{
+      if(bgMusicRef.current)return;
+      const ctx=new(window.AudioContext||(window as unknown as{webkitAudioContext:typeof AudioContext}).webkitAudioContext)();
+      bgMusicRef.current=ctx;
+      const masterGain=ctx.createGain();
+      masterGain.gain.value=bgVolume;
+      masterGain.connect(ctx.destination);
+      bgGainRef.current=masterGain;
+      // Simple ambient drone — layered sine waves in Bb minor chord
+      const notes=[233.08,277.18,349.23,415.30,466.16];// Bb, Db, F, Ab, Bb
+      notes.forEach((freq,i)=>{
+        const osc=ctx.createOscillator();
+        const g=ctx.createGain();
+        osc.type='sine';
+        osc.frequency.value=freq;
+        g.gain.value=0.08/(i+1);
+        // Slow vibrato
+        const lfo=ctx.createOscillator();
+        const lfoGain=ctx.createGain();
+        lfo.frequency.value=0.15+i*0.05;
+        lfoGain.gain.value=1.5;
+        lfo.connect(lfoGain);
+        lfoGain.connect(osc.frequency);
+        lfo.start();
+        osc.connect(g);
+        g.connect(masterGain);
+        osc.start();
+        bgOscRefs.current.push(osc);
+      });
+    }catch{}
+  },[bgVolume]);
+
+  const stopBgMusic=useCallback(()=>{
+    try{
+      bgOscRefs.current.forEach(o=>{try{o.stop();}catch{}});
+      bgOscRefs.current=[];
+      bgMusicRef.current?.close();
+      bgMusicRef.current=null;
+    }catch{}
+  },[]);
+
+  const updateBgVolume=useCallback((v:number)=>{
+    setBgVolume(v);
+    if(bgGainRef.current)bgGainRef.current.gain.value=v;
+  },[]);
   const[showConfetti,setShowConfetti]=useState(false);
   const[matchHistory,setMatchHistory]=useState<{opp:string;res:string;score:string}[]>([]);
   const[streak,setStreak]=useState(0);// positive=win streak, negative=loss streak
@@ -1359,120 +1415,191 @@ export default function PersibManager(){
   const resetGame=()=>{localStorage.removeItem('pm26v4');window.location.reload();};
 
   // ── INTRO ────────────────────────────────────────────────────
-  if(phase==='intro')return(
-    <div className="min-h-screen relative flex items-center justify-center overflow-hidden">
-      <TigerBg/>
-      <motion.div initial={{opacity:0,y:40}}animate={{opacity:1,y:0}}transition={{duration:0.7,ease:[0.22,1,0.36,1]}}className="relative z-10 w-full max-w-sm mx-4">
-
-        {/* Bojan Hodak cartoon */}
-        <motion.div initial={{scale:0,rotate:-10}}animate={{scale:1,rotate:0}}transition={{delay:0.2,type:'spring',stiffness:150,damping:15}}
-          className="flex justify-center mb-4">
-          <div className="relative">
-            <svg width="130" height="160" viewBox="0 0 130 160" xmlns="http://www.w3.org/2000/svg">
-              {/* Body - buncit */}
+  // ── SPLASH SCREEN ─────────────────────────────────────────
+  if(phase==='splash'){
+    // Auto-advance after 3s, but user can tap to skip
+    return(
+      <div className="min-h-screen relative flex flex-col items-center justify-center overflow-hidden"
+        onClick={()=>setPhase('intro')}>
+        <TigerBg/>
+        <div className="relative z-10 flex flex-col items-center text-center px-6 select-none">
+          {/* Title */}
+          <motion.div initial={{opacity:0,y:-30}} animate={{opacity:1,y:0}} transition={{duration:0.7,ease:[0.22,1,0.36,1]}}>
+            <div className="text-[10px] text-amber-400/70 tracking-[4px] font-bold mb-2">🎮 FOOTBALL MANAGER GAME</div>
+            <h1 className="text-4xl font-black text-white leading-none mb-1">SEHARI MENJADI</h1>
+            <h1 className="text-5xl font-black leading-none mb-6"
+              style={{background:'linear-gradient(135deg,#fbbf24,#f59e0b,#fbbf24)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>
+              BOJAN HODAK
+            </h1>
+          </motion.div>
+          {/* Bojan SVG animated */}
+          <motion.div
+            initial={{scale:0,rotate:-15,opacity:0}}
+            animate={{scale:1,rotate:0,opacity:1}}
+            transition={{delay:0.4,type:'spring',stiffness:120,damping:12}}>
+            <div className="relative">
+              <svg width="160" height="190" viewBox="0 0 130 160" xmlns="http://www.w3.org/2000/svg">
               <ellipse cx="65" cy="118" rx="38" ry="32" fill="#2c5aa0"/>
-              {/* Belly protrusion */}
               <ellipse cx="65" cy="125" rx="28" ry="22" fill="#1d4ed8"/>
-              {/* Neck */}
               <rect x="57" y="88" width="16" height="14" rx="4" fill="#f5c5a3"/>
-              {/* Head - bald & round */}
               <ellipse cx="65" cy="72" rx="28" ry="26" fill="#f5c5a3"/>
-              {/* Bald shine */}
               <ellipse cx="58" cy="55" rx="8" ry="5" fill="rgba(255,255,255,0.35)" transform="rotate(-20,58,55)"/>
-              {/* Ears */}
               <ellipse cx="37" cy="72" rx="5" ry="7" fill="#f0b090"/>
               <ellipse cx="93" cy="72" rx="5" ry="7" fill="#f0b090"/>
               <ellipse cx="37" cy="72" rx="3" ry="4" fill="#e8a080"/>
               <ellipse cx="93" cy="72" rx="3" ry="4" fill="#e8a080"/>
-              {/* Eyebrows - stern */}
               <path d="M48 60 Q56 57 60 60" stroke="#8B4513" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
               <path d="M70 60 Q74 57 82 60" stroke="#8B4513" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
-              {/* Eyes */}
               <ellipse cx="55" cy="67" rx="5" ry="5.5" fill="white"/>
               <ellipse cx="75" cy="67" rx="5" ry="5.5" fill="white"/>
               <circle cx="56" cy="68" r="3" fill="#2d1b00"/>
               <circle cx="76" cy="68" r="3" fill="#2d1b00"/>
               <circle cx="57" cy="67" r="1" fill="white"/>
               <circle cx="77" cy="67" r="1" fill="white"/>
-              {/* Mole / tahi lalat */}
               <circle cx="80" cy="78" r="2.5" fill="#5a2d0c"/>
-              {/* Nose */}
               <ellipse cx="65" cy="74" rx="5" ry="4" fill="#e8a080"/>
               <circle cx="62" cy="75" r="1.5" fill="#c87060"/>
               <circle cx="68" cy="75" r="1.5" fill="#c87060"/>
-              {/* Mouth - slight smile/smirk */}
               <path d="M57 82 Q65 87 73 82" stroke="#c07050" strokeWidth="2" fill="none" strokeLinecap="round"/>
-              {/* Stubble hints */}
-              <path d="M52 84 Q53 86 54 84" stroke="#c09080" strokeWidth="1" fill="none"/>
-              <path d="M75 84 Q76 86 77 84" stroke="#c09080" strokeWidth="1" fill="none"/>
-              {/* Whistle around neck */}
               <path d="M52 97 Q65 104 78 97" stroke="#fbbf24" strokeWidth="2.5" fill="none"/>
               <circle cx="65" cy="104" r="4" fill="#fbbf24"/>
-              {/* Arms */}
               <path d="M27 108 Q18 120 22 132" stroke="#2c5aa0" strokeWidth="10" strokeLinecap="round" fill="none"/>
               <ellipse cx="22" cy="134" rx="6" ry="5" fill="#f5c5a3"/>
               <path d="M103 108 Q112 120 108 132" stroke="#2c5aa0" strokeWidth="10" strokeLinecap="round" fill="none"/>
               <ellipse cx="108" cy="134" rx="6" ry="5" fill="#f5c5a3"/>
-              {/* Clipboard in hand */}
               <rect x="111" y="126" width="14" height="18" rx="2" fill="#fef3c7" stroke="#d97706" strokeWidth="1.5"/>
               <line x1="113" y1="131" x2="123" y2="131" stroke="#92400e" strokeWidth="1"/>
               <line x1="113" y1="134" x2="123" y2="134" stroke="#92400e" strokeWidth="1"/>
               <line x1="113" y1="137" x2="120" y2="137" stroke="#92400e" strokeWidth="1"/>
-              {/* Legs */}
               <rect x="48" y="145" width="12" height="14" rx="4" fill="#1e3a5f"/>
               <rect x="70" y="145" width="12" height="14" rx="4" fill="#1e3a5f"/>
-              {/* Shoes */}
               <ellipse cx="54" cy="158" rx="10" ry="4" fill="#111"/>
               <ellipse cx="76" cy="158" rx="10" ry="4" fill="#111"/>
-              {/* Belt */}
               <rect x="30" y="138" width="70" height="6" rx="3" fill="#1e3a5f"/>
               <rect x="60" y="137" width="10" height="8" rx="2" fill="#fbbf24"/>
             </svg>
-            {/* Speech bubble */}
-            <motion.div initial={{scale:0,opacity:0}}animate={{scale:1,opacity:1}}transition={{delay:1.2,type:'spring'}}
-              className="absolute -top-2 -right-2 bg-white rounded-2xl rounded-bl-none px-3 py-1.5 shadow-lg"
-              style={{minWidth:90}}>
-              <p className="text-[10px] font-black text-slate-800 text-center leading-tight">Halo, Bobotoh!<br/><span className="text-blue-600">Ayo main! 🐯</span></p>
-            </motion.div>
+              {/* Speech bubble */}
+              <motion.div
+                initial={{scale:0,opacity:0}} animate={{scale:1,opacity:1}}
+                transition={{delay:1.2,type:'spring',stiffness:200}}
+                className="absolute -top-3 -right-4 bg-white rounded-2xl rounded-bl-none px-3 py-2 shadow-xl"
+                style={{minWidth:100}}>
+                <p className="text-[10px] font-black text-slate-800 leading-tight text-center">
+                  Halo, Bobotoh!<br/><span className="text-blue-600">Siap main? 🐯</span>
+                </p>
+              </motion.div>
+            </div>
+          </motion.div>
+          {/* Tap to continue */}
+          <motion.div
+            initial={{opacity:0}} animate={{opacity:1}} transition={{delay:2}}
+            className="mt-6 text-xs text-slate-500 animate-pulse">
+            Tap untuk mulai →
+          </motion.div>
+          {/* Auto advance */}
+          <AutoAdvance onDone={()=>setPhase('intro')} delay={3000}/>
+        </div>
+      </div>
+    );
+  }
+
+  // ── INTRO SCREEN — pilih Start atau Trivia ──────────────
+  if(phase==='intro')return(
+    <div className="min-h-screen relative flex items-center justify-center overflow-hidden">
+      <TigerBg/>
+      <motion.div initial={{opacity:0,y:30}} animate={{opacity:1,y:0}} transition={{duration:0.6}}
+        className="relative z-10 w-full max-w-sm mx-4 flex flex-col items-center">
+
+        {/* Mini Bojan + title */}
+        <motion.div initial={{scale:0.8,opacity:0}} animate={{scale:1,opacity:1}} transition={{delay:0.1,type:'spring',stiffness:140}}
+          className="relative mb-3">
+          <div className="relative flex justify-center">
+            <svg width="110" height="135" viewBox="0 0 130 160" xmlns="http://www.w3.org/2000/svg">
+              <ellipse cx="65" cy="118" rx="38" ry="32" fill="#2c5aa0"/>
+              <ellipse cx="65" cy="125" rx="28" ry="22" fill="#1d4ed8"/>
+              <rect x="57" y="88" width="16" height="14" rx="4" fill="#f5c5a3"/>
+              <ellipse cx="65" cy="72" rx="28" ry="26" fill="#f5c5a3"/>
+              <ellipse cx="58" cy="55" rx="8" ry="5" fill="rgba(255,255,255,0.35)" transform="rotate(-20,58,55)"/>
+              <ellipse cx="37" cy="72" rx="5" ry="7" fill="#f0b090"/>
+              <ellipse cx="93" cy="72" rx="5" ry="7" fill="#f0b090"/>
+              <ellipse cx="37" cy="72" rx="3" ry="4" fill="#e8a080"/>
+              <ellipse cx="93" cy="72" rx="3" ry="4" fill="#e8a080"/>
+              <path d="M48 60 Q56 57 60 60" stroke="#8B4513" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+              <path d="M70 60 Q74 57 82 60" stroke="#8B4513" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+              <ellipse cx="55" cy="67" rx="5" ry="5.5" fill="white"/>
+              <ellipse cx="75" cy="67" rx="5" ry="5.5" fill="white"/>
+              <circle cx="56" cy="68" r="3" fill="#2d1b00"/>
+              <circle cx="76" cy="68" r="3" fill="#2d1b00"/>
+              <circle cx="57" cy="67" r="1" fill="white"/>
+              <circle cx="77" cy="67" r="1" fill="white"/>
+              <circle cx="80" cy="78" r="2.5" fill="#5a2d0c"/>
+              <ellipse cx="65" cy="74" rx="5" ry="4" fill="#e8a080"/>
+              <circle cx="62" cy="75" r="1.5" fill="#c87060"/>
+              <circle cx="68" cy="75" r="1.5" fill="#c87060"/>
+              <path d="M57 82 Q65 87 73 82" stroke="#c07050" strokeWidth="2" fill="none" strokeLinecap="round"/>
+              <path d="M52 97 Q65 104 78 97" stroke="#fbbf24" strokeWidth="2.5" fill="none"/>
+              <circle cx="65" cy="104" r="4" fill="#fbbf24"/>
+              <path d="M27 108 Q18 120 22 132" stroke="#2c5aa0" strokeWidth="10" strokeLinecap="round" fill="none"/>
+              <ellipse cx="22" cy="134" rx="6" ry="5" fill="#f5c5a3"/>
+              <path d="M103 108 Q112 120 108 132" stroke="#2c5aa0" strokeWidth="10" strokeLinecap="round" fill="none"/>
+              <ellipse cx="108" cy="134" rx="6" ry="5" fill="#f5c5a3"/>
+              <rect x="111" y="126" width="14" height="18" rx="2" fill="#fef3c7" stroke="#d97706" strokeWidth="1.5"/>
+              <line x1="113" y1="131" x2="123" y2="131" stroke="#92400e" strokeWidth="1"/>
+              <line x1="113" y1="134" x2="123" y2="134" stroke="#92400e" strokeWidth="1"/>
+              <line x1="113" y1="137" x2="120" y2="137" stroke="#92400e" strokeWidth="1"/>
+              <rect x="48" y="145" width="12" height="14" rx="4" fill="#1e3a5f"/>
+              <rect x="70" y="145" width="12" height="14" rx="4" fill="#1e3a5f"/>
+              <ellipse cx="54" cy="158" rx="10" ry="4" fill="#111"/>
+              <ellipse cx="76" cy="158" rx="10" ry="4" fill="#111"/>
+              <rect x="30" y="138" width="70" height="6" rx="3" fill="#1e3a5f"/>
+              <rect x="60" y="137" width="10" height="8" rx="2" fill="#fbbf24"/>
+            </svg>
           </div>
         </motion.div>
 
-        {/* Title */}
-        <div className="text-center mb-4">
-          <div className="text-[10px] text-amber-400/70 tracking-widest font-semibold mb-1">🎮 FOOTBALL MANAGER GAME</div>
-          <h1 className="text-xl font-black text-white leading-tight">SEHARI MENJADI</h1>
-          <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 leading-tight">BOJAN HODAK</h1>
-          <p className="text-[10px] text-slate-400 mt-1">BRI Super League 2025/26 · 18 Tim · 295 Pemain</p>
-        </div>
+        <motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:0.2}} className="text-center mb-6">
+          <div className="text-[9px] text-amber-400/70 tracking-[3px] font-bold mb-1">🎮 FOOTBALL MANAGER</div>
+          <h1 className="text-2xl font-black text-white leading-none">SEHARI MENJADI</h1>
+          <h1 className="text-3xl font-black leading-none"
+            style={{background:'linear-gradient(135deg,#fbbf24,#f59e0b)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>
+            BOJAN HODAK
+          </h1>
+          <p className="text-[10px] text-slate-500 mt-1">BRI Super League 2025/26 · 18 Tim · 295 Pemain</p>
+        </motion.div>
 
-        <Glass className="p-6 relative overflow-hidden">
-          <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-amber-500 via-amber-300 to-amber-500"/>
-          <div className="absolute bottom-0 inset-x-0 h-0.5 bg-gradient-to-r from-blue-600 via-blue-400 to-blue-600"/>
-          <motion.div initial={{opacity:0}}animate={{opacity:1}}transition={{delay:0.6}}className="text-center mb-4">
-            <div className="inline-block bg-amber-500/10 border border-amber-500/30 rounded-full px-4 py-1.5 text-xs text-amber-400/80 tracking-widest mb-1">SPECIAL THANKS TO</div>
-            <div className="text-sm font-bold text-amber-300">AR RAZI NUR INSAN</div>
-            <div className="text-xs text-slate-400 flex items-center justify-center gap-1"><MapPin size={9}/>Bobotoh Cimahi</div>
-          </motion.div>
-          <div className="space-y-3">
-            <div><label className="text-[10px] text-slate-400 font-semibold tracking-widest block mb-1.5">NAMA MANAGER</label>
-              <div className="relative"><User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14}/><input type="text" value={tmpName} onChange={e=>setTmpName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&(tmpName.trim()&&tmpRegion.trim()&&(setManagerName(tmpName.trim()),setManagerRegion(tmpRegion.trim()),setPhase('welcome')))} placeholder="Nama kamu..." className="w-full bg-slate-800/60 border border-slate-700/50 rounded-xl py-3 pl-9 pr-4 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50 transition-all"/></div>
-            </div>
-            <div><label className="text-[10px] text-slate-400 font-semibold tracking-widest block mb-1.5">BOBOTOH DARI MANA?</label>
-              <div className="relative"><MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14}/><input type="text" value={tmpRegion} onChange={e=>setTmpRegion(e.target.value)} onKeyDown={e=>e.key==='Enter'&&(tmpName.trim()&&tmpRegion.trim()&&(setManagerName(tmpName.trim()),setManagerRegion(tmpRegion.trim()),setPhase('welcome')))} placeholder="Kota / daerah..." className="w-full bg-slate-800/60 border border-slate-700/50 rounded-xl py-3 pl-9 pr-4 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50 transition-all"/></div>
-            </div>
-            <motion.button whileHover={{scale:1.02}}whileTap={{scale:0.98}}onClick={()=>{if(tmpName.trim()&&tmpRegion.trim()){setManagerName(tmpName.trim());setManagerRegion(tmpRegion.trim());setPhase('trivia');}}}disabled={!tmpName.trim()||!tmpRegion.trim()}
-              className={`w-full py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 text-sm transition-all ${tmpName.trim()&&tmpRegion.trim()?'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white shadow-lg shadow-blue-500/30':'bg-slate-700/40 text-slate-500 cursor-not-allowed'}`}>
-              <Swords size={18}/>MULAI KARIR
-            </motion.button>
-          </div>
-        </Glass>
-        <div className="text-center mt-4 text-xs text-slate-500">Maung Bandung · Juara BRI Liga 1 2024/25 🏆</div>
+        {/* Two main buttons */}
+        <motion.div initial={{opacity:0,y:20}} animate={{opacity:1,y:0}} transition={{delay:0.35}}
+          className="w-full space-y-3 px-2">
+          <motion.button
+            whileHover={{scale:1.02}} whileTap={{scale:0.97}}
+            onClick={()=>{startBgMusic();setPhase('welcome');}}
+            className="w-full py-4 rounded-2xl font-black text-base flex items-center justify-center gap-3 text-slate-900 shadow-xl"
+            style={{background:'linear-gradient(135deg,#fbbf24,#f59e0b)',boxShadow:'0 8px 32px rgba(251,191,36,0.35)'}}>
+            <Play size={22} fill="currentColor"/>
+            MULAI MAIN
+          </motion.button>
+          <motion.button
+            whileHover={{scale:1.02}} whileTap={{scale:0.97}}
+            onClick={()=>setPhase('trivia')}
+            className="w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 text-white border border-white/15 bg-white/8 hover:bg-white/12 transition">
+            <Trophy size={18}/>
+            TRIVIA & INFO PERSIB
+          </motion.button>
+        </motion.div>
+
+        <motion.p initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.5}}
+          className="text-center text-[10px] text-slate-600 mt-4">
+          Juara BRI Liga 1 Back-to-Back 2023/24 & 2024/25 🏆
+        </motion.p>
       </motion.div>
     </div>
   );
 
   if(phase==='trivia'){
     const TRIVIA_TABS=[
+      {id:'sejarah',label:'📜 Sejarah',icon:'📜'},
+      {id:'rekor',label:'🏆 Rekor',icon:'🏆'},
+      {id:'squad',label:'👥 Skuad',icon:'👥'},
       {id:'sejarah',label:'📜 Sejarah',icon:'📜'},
       {id:'rekor',label:'🏆 Rekor',icon:'🏆'},
       {id:'squad',label:'👥 Skuad',icon:'👥'},
@@ -1607,12 +1734,14 @@ export default function PersibManager(){
                 <div className="text-[10px] text-purple-400 font-bold tracking-widest mb-3">🏅 REKOR MUSIM 2024/25</div>
                 <div className="space-y-2">
                   {[
-                    {icon:'⚽',stat:'Top Scorer',val:'Gustavo Franca',sub:'18 gol'},
-                    {icon:'🎯',stat:'Top Assist',val:'Tyronne del Pino',sub:'15 assist'},
+                    {icon:'⚽',stat:'Top Scorer Liga 1',val:'Alex Martins',sub:'26 gol (Dewa United)'},
+                    {icon:'🔵',stat:'Top Scorer Persib',val:'Tyronne del Pino',sub:'18 gol, 8 assist'},
+                    {icon:'🏅',stat:'Pemain Terbaik Liga 1',val:'Tyronne del Pino',sub:'Persib Bandung'},
+                    {icon:'🎯',stat:'Top Assist Persib',val:'Tyronne del Pino',sub:'8 assist dari 31 laga'},
                     {icon:'🛫',stat:'Kemenangan Tandang',val:'11 kali',sub:'Rekor terbaik Liga 1'},
-                    {icon:'📅',stat:'Juara di Pekan ke-',val:'31',sub:'Juara tercepat ke-2 sepanjang sejarah'},
-                    {icon:'🏆',stat:'Total Poin',val:'69 poin',sub:'dari 34 laga'},
-                    {icon:'💪',stat:'Pemain Kontribusi',val:'18 dari 28',sub:'Pemain skuad utama'},
+                    {icon:'📅',stat:'Juara di Pekan ke-',val:'31',sub:'Awal Mei 2025'},
+                    {icon:'🏆',stat:'Total Poin',val:'69 poin',sub:'19M 12S 3K dari 34 laga'},
+                    {icon:'🥇',stat:'Catatan Juara',val:'Back-to-back',sub:'2023/24 & 2024/25 — pertama sejarah'},
                   ].map(({icon,stat,val,sub})=>(
                     <div key={stat} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/5">
                       <div className="text-xl flex-shrink-0">{icon}</div>
@@ -1681,11 +1810,18 @@ export default function PersibManager(){
 
           {/* Fixed bottom */}
           <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md px-4 pb-4 pt-2 bg-gradient-to-t from-slate-950 to-transparent">
-            <motion.button whileHover={{scale:1.02}} whileTap={{scale:0.98}} onClick={()=>setPhase('welcome')}
-              className="w-full py-4 rounded-2xl font-black text-base flex items-center justify-center gap-2 text-white shadow-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-blue-500/30">
-              <Play size={20} fill="currentColor"/>Siap Melatih Maung Bandung!
-            </motion.button>
-            <p className="text-center text-[10px] text-slate-500 mt-2">
+            <div className="flex gap-2 mb-2">
+              <button onClick={()=>setPhase('intro')}
+                className="py-3 px-4 rounded-xl text-slate-400 text-sm font-semibold bg-white/8 border border-white/10 hover:bg-white/12 transition flex items-center gap-1.5">
+                ← Kembali
+              </button>
+              <motion.button whileHover={{scale:1.02}} whileTap={{scale:0.98}} onClick={()=>{startBgMusic();setPhase('welcome');}}
+                className="flex-1 py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 text-slate-900 shadow-xl"
+                style={{background:'linear-gradient(135deg,#fbbf24,#f59e0b)',boxShadow:'0 6px 24px rgba(251,191,36,0.3)'}}>
+                <Play size={18} fill="currentColor"/>Mulai Main Sekarang!
+              </motion.button>
+            </div>
+            <p className="text-center text-[10px] text-slate-500">
               🐛 Bug & saran? Follow <a href="https://instagram.com/arrazynur" target="_blank" className="text-blue-400 underline">@arrazynur</a> di Instagram
             </p>
           </div>
@@ -1695,14 +1831,66 @@ export default function PersibManager(){
   }
   if(phase==='welcome')return(
     <div className="min-h-screen relative flex items-center justify-center overflow-hidden"><TigerBg/>
-      <motion.div initial={{opacity:0}}animate={{opacity:1}}className="relative z-10 text-center px-8 max-w-sm">
-        <motion.h1 initial={{y:-30,opacity:0}}animate={{y:0,opacity:1}}transition={{delay:0.2,duration:0.6}}className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-300 to-amber-500 mb-4">Wilujeng Sumping!</motion.h1>
-        <motion.div initial={{opacity:0,y:20}}animate={{opacity:1,y:0}}transition={{delay:0.5}}className="space-y-1 mb-8"><p className="text-2xl font-bold text-white">Coach {managerName}</p><p className="text-slate-400 flex items-center justify-center gap-1"><MapPin size={14}className="text-blue-400"/>Bobotoh dari {managerRegion}</p></motion.div>
-        <motion.div initial={{scale:0,rotate:-180}}animate={{scale:1,rotate:0}}transition={{delay:0.7,type:'spring',stiffness:150}}className="w-28 h-28 mx-auto rounded-full bg-gradient-to-br from-blue-600 to-blue-900 border-4 border-amber-400 flex items-center justify-center shadow-2xl shadow-blue-500/40 mb-8"><Shield className="text-white" size={56}/></motion.div>
-        <motion.p initial={{opacity:0}}animate={{opacity:1}}transition={{delay:1}}className="text-slate-400 mb-8 leading-relaxed">Siap memimpin Maung Bandung merajai BRI Super League 2025/26? 17 pertandingan menanti!</motion.p>
-        <motion.button initial={{opacity:0,y:20}}animate={{opacity:1,y:0}}transition={{delay:1.2}}whileHover={{scale:1.05}}whileTap={{scale:0.95}}onClick={()=>setPhase('game')}className="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold px-10 py-4 rounded-2xl shadow-xl shadow-blue-500/30 flex items-center gap-2 mx-auto">
-          <Play size={20}fill="currentColor"/>Masuk ke Markas
-        </motion.button>
+      <motion.div initial={{opacity:0,y:30}}animate={{opacity:1,y:0}}transition={{duration:0.5}}
+        className="relative z-10 w-full max-w-sm mx-4">
+        <div className="text-center mb-6">
+          <motion.div initial={{scale:0.8,opacity:0}}animate={{scale:1,opacity:1}}transition={{delay:0.1,type:'spring'}}>
+            <div className="text-[9px] text-amber-400/70 tracking-[3px] font-bold mb-1">DATA MANAGER</div>
+            <h2 className="text-2xl font-black text-white">Siapa kamu, Bobotoh?</h2>
+            <p className="text-[11px] text-slate-400 mt-1">Isi nama & kotamu sebelum mulai</p>
+          </motion.div>
+        </div>
+        <Glass className="p-5 relative overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-1 rounded-t-2xl" style={{background:'linear-gradient(90deg,#1d4ed8,#fbbf24,#1d4ed8)'}}/>
+          <div className="space-y-4 mt-1">
+            <div>
+              <label className="text-[10px] text-slate-400 font-bold tracking-widest block mb-1.5">NAMA MANAGER</label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14}/>
+                <input type="text" value={tmpName} onChange={e=>setTmpName(e.target.value)}
+                  onKeyDown={e=>e.key==='Enter'&&tmpName.trim()&&tmpRegion.trim()&&(setManagerName(tmpName.trim()),setManagerRegion(tmpRegion.trim()),setPhase('game'))}
+                  placeholder="Nama kamu..." autoFocus
+                  className="w-full bg-slate-800/60 border border-slate-700/50 rounded-xl py-3 pl-9 pr-4 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50 transition-all"/>
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-400 font-bold tracking-widest block mb-1.5">BOBOTOH DARI MANA?</label>
+              <div className="relative">
+                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14}/>
+                <input type="text" value={tmpRegion} onChange={e=>setTmpRegion(e.target.value)}
+                  onKeyDown={e=>e.key==='Enter'&&tmpName.trim()&&tmpRegion.trim()&&(setManagerName(tmpName.trim()),setManagerRegion(tmpRegion.trim()),setPhase('game'))}
+                  placeholder="Kota / daerah..."
+                  className="w-full bg-slate-800/60 border border-slate-700/50 rounded-xl py-3 pl-9 pr-4 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50 transition-all"/>
+              </div>
+            </div>
+            {/* Music volume */}
+            <div className="pt-1 border-t border-white/8">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[10px] text-slate-400 font-bold tracking-widest flex items-center gap-1.5">
+                  🎵 MUSIK LATAR
+                </label>
+                <span className="text-[10px] text-slate-500">{Math.round(bgVolume*100)}%</span>
+              </div>
+              <input type="range" min={0} max={1} step={0.05} value={bgVolume}
+                onChange={e=>updateBgVolume(parseFloat(e.target.value))}
+                className="w-full accent-blue-500 h-1.5 rounded-full"/>
+            </div>
+            <motion.button
+              whileHover={{scale:1.02}} whileTap={{scale:0.97}}
+              onClick={()=>{if(tmpName.trim()&&tmpRegion.trim()){setManagerName(tmpName.trim());setManagerRegion(tmpRegion.trim());setPhase('game');}}}
+              disabled={!tmpName.trim()||!tmpRegion.trim()}
+              className={`w-full py-3.5 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all ${tmpName.trim()&&tmpRegion.trim()?'text-slate-900 shadow-lg':'bg-slate-700/40 text-slate-500 cursor-not-allowed'}`}
+              style={tmpName.trim()&&tmpRegion.trim()?{background:'linear-gradient(135deg,#fbbf24,#f59e0b)',boxShadow:'0 6px 24px rgba(251,191,36,0.3)'}:{}}>
+              <Swords size={16}/>Masuk ke Markas!
+            </motion.button>
+          </div>
+        </Glass>
+        <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.4}}
+          className="text-center mt-3">
+          <button onClick={()=>setPhase('intro')} className="text-[11px] text-slate-500 hover:text-slate-400 transition">
+            ← Kembali
+          </button>
+        </motion.div>
       </motion.div>
     </div>
   );
@@ -1974,7 +2162,13 @@ export default function PersibManager(){
           <Glass className="px-4 py-2.5 flex justify-between items-center border-t-2 border-t-amber-500">
             <div><div className="text-base font-extrabold text-white flex items-center gap-1.5 tracking-tight"><Shield className="text-blue-400" size={17}/>PERSIB <span className="text-amber-400 font-light text-sm ml-0.5">2026</span></div><div className="text-[10px] text-slate-400 mt-0.5"><User size={9}className="inline mr-1"/>{managerName} · {managerRegion}</div></div>
             <div className="flex items-center gap-3">
-              <button onClick={()=>{setSoundOn(!soundOn);if(soundOn)playClick();}}className="p-1.5 rounded-lg bg-slate-800/50 hover:bg-slate-700/50 transition">{soundOn?<Volume2 size={14}className="text-blue-400"/>:<VolumeX size={14}className="text-slate-500"/>}</button>
+              <div className="flex items-center gap-1.5">
+                <button onClick={()=>{setSoundOn(!soundOn);if(soundOn)playClick();}}className="p-1.5 rounded-lg bg-slate-800/50 hover:bg-slate-700/50 transition">{soundOn?<Volume2 size={14}className="text-blue-400"/>:<VolumeX size={14}className="text-slate-500"/>}</button>
+                <input type="range" min={0} max={1} step={0.05} value={bgVolume}
+                  onChange={e=>updateBgVolume(parseFloat(e.target.value))}
+                  title="Volume musik latar"
+                  className="w-14 accent-blue-500 h-1 rounded-full cursor-pointer"/>
+              </div>
               <div className="text-right"><div className="text-sm font-bold text-emerald-400 flex items-center gap-0.5"><DollarSign size={12}/>{budget.toFixed(1)}M</div><div className="text-[10px] flex items-center gap-0.5 justify-end"><Heart size={9}className={morale>50?'text-green-400':'text-red-400'}/><span className={morale>50?'text-green-400':'text-red-400'}>{morale}%</span></div></div>
             </div>
           </Glass>
