@@ -1692,6 +1692,7 @@ export default function PersibManager(){
       </div>
     );
   }
+  if(phase==='welcome')return(
     <div className="min-h-screen relative flex items-center justify-center overflow-hidden"><TigerBg/>
       <motion.div initial={{opacity:0}}animate={{opacity:1}}className="relative z-10 text-center px-8 max-w-sm">
         <motion.h1 initial={{y:-30,opacity:0}}animate={{y:0,opacity:1}}transition={{delay:0.2,duration:0.6}}className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-300 to-amber-500 mb-4">Wilujeng Sumping!</motion.h1>
